@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rechnungs-Extraktor - Einfache Version</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen p-4">
+    <div class="container mx-auto max-w-2xl">
+        <!-- Header -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6 text-center">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">📄 Rechnungs-Extraktor</h1>
+            <p class="text-gray-600">Einfache KI-Rechnungsverarbeitung</p>
+        </div>
+
+        <!-- Anleitung -->
+        <div class="bg-blue-50 border-2 border-blue-200 rounded-lg p-6 mb-6">
+            <h2 class="text-lg font-semibold text-blue-900 mb-3">📌 So funktioniert's:</h2>
+            <ol class="text-blue-800 space-y-2 list-decimal list-inside">
+                <li>Gib deinen Claude API-Key ein (einmalig)</li>
+                <li>Lade eine Rechnungs-PDF hoch</li>
+                <li>Klicke "Extrahieren"</li>
+                <li>Fertig! Daten werden angezeigt</li>
+            </ol>
+        </div>
+
+        <!-- API Key Setup -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">🔑 Schritt 1: API Key</h2>
+            
+            <div class="bg-yellow-50 p-4 rounded-lg mb-4 text-sm">
+                <p class="font-semibold mb-2">Noch keinen API Key?</p>
+                <p class="mb-2">1. Gehe zu <a href="https://console.anthropic.com" target="_blank" class="text-blue-600 underline">console.anthropic.com</a></p>
+                <p class="mb-2">2. Registriere dich (kostenlos)</p>
+                <p>3. Erstelle einen API Key unter "API Keys"</p>
+            </div>
+
+            <input
+                type="password"
+                id="apiKey"
+                placeholder="sk-ant-api03-..."
+                class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none mb-3"
+            />
+            <button
+                onclick="saveApiKey()"
+                class="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700"
+            >
+                ✓ API Key speichern
+            </button>
+            <p id="apiKeyStatus" class="mt-2 text-sm"></p>
+        </div>
+
+        <!-- Upload Bereich -->
+        <div class="bg-white rounded-lg shadow-lg p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">📤 Schritt 2: PDF hochladen</h2>
+            
+            <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-4">
+                <input
+                    type="file"
+                    id="fileInput"
+                    accept="application/pdf"
+                    onchange="handleFile()"
+                    class="hidden"
+                />
+                <label for="fileInput" class="cursor-pointer">
+                    <div class="text-6xl mb-3">📎</div>
+                    <p id="fileName" class="text-lg text-gray-700 mb-2">PDF auswählen (klicken)</p>
+                    <p class="text-sm text-gray-500">Nur PDF-Dateien</p>
+                </label>
+            </div>
+
+            <button
+                onclick="processInvoice()"
+                id="processBtn"
+                disabled
+                class="w-full py-4 bg-green-600 text-white rounded-lg font-semibold text-lg hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+            >
+                🚀 Rechnung extrahieren
+            </button>
+        </div>
+
+        <!-- Loading -->
+        <div id="loading" class="hidden bg-white rounded-lg shadow-lg p-8 mb-6 text-center">
+            <div class="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p class="text-lg font-semibold">Verarbeite Rechnung...</p>
+            <p class="text-sm text-gray-600 mt-2">Das kann 10-20 Sekunden dauern</p>
+        </div>
+
+        <!-- Error -->
+        <div id="error" class="hidden bg-red-50 border-2 border-red-200 rounded-lg p-4 mb-6">
+            <p class="text-red-700 font-semibold">❌ <span id="errorMsg"></span></p>
+        </div>
+
+        <!-- Ergebnis -->
+        <div id="result" class="hidden bg-white rounded-lg shadow-lg p-6">
+            <h2 class="text-xl font-semibold mb-4">✅ Extrahierte Daten</h2>
+            <div id="resultContent" class="space-y-3"></div>
+            <button
+                onclick="copyToClipboard()"
+                class="w-full mt-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700"
+            >
+                📋 Daten kopieren
+            </button>
+        </div>
+
+        <!-- Footer -->
+        <div class="text-center mt-8 text-gray-500 text-sm">
+            <p>Powered by Claude AI</p>
+            <p class="mt-1">💡 Tipp: Deine Daten bleiben privat und werden nicht gespeichert</p>
+        </div>
+    </div>
+
+    <script>
+        let currentFile = null;
+        let extractedData = null;
+
+        // API Key speichern
+        function saveApiKey() {
+            const apiKey = document.getElementById('apiKey').value.trim();
+            if (!apiKey) {
+                alert('Bitte API Key eingeben');
+                return;
+            }
+            if (!apiKey.startsWith('sk-ant-')) {
+                alert('API Key sollte mit "sk-ant-" beginnen. Bitte prüfen!');
+                return;
+            }
+            localStorage.setItem('anthropic_api_key', apiKey);
+            document.getElementById('apiKeyStatus').innerHTML = '✅ <span class="text-green-600 font-semibold">API Key gespeichert!</span>';
+            checkReady();
+        }
+
+        // API Key beim Laden prüfen
+        window.onload = function() {
+            const savedKey = localStorage.getItem('anthropic_api_key');
+            if (savedKey) {
+                document.getElementById('apiKey').value = savedKey;
+                document.getElementById('apiKeyStatus').innerHTML = '✅ <span class="text-green-600 font-semibold">API Key geladen</span>';
+                checkReady();
+            }
+        };
+
+        // Datei Upload
+        function handleFile() {
+            const input = document.getElementById('fileInput');
+            currentFile = input.files[0];
+            if (currentFile) {
+                document.getElementById('fileName').textContent = currentFile.name;
+                checkReady();
+            }
+        }
+
+        // Prüfen ob alles bereit ist
+        function checkReady() {
+            const hasKey = localStorage.getItem('anthropic_api_key');
+            const hasFile = currentFile !== null;
+            document.getElementById('processBtn').disabled = !(hasKey && hasFile);
+        }
+
+        // Hauptfunktion: Rechnung verarbeiten
+        async function processInvoice() {
+            const apiKey = localStorage.getItem('anthropic_api_key');
+            if (!apiKey || !currentFile) {
+                showError('Bitte API Key und Datei eingeben');
+                return;
+            }
+
+            // UI Update
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('error').classList.add('hidden');
+            document.getElementById('result').classList.add('hidden');
+
+            try {
+                // 1. PDF zu Base64
+                const base64Data = await fileToBase64(currentFile);
+
+                // 2. Claude API Call
+                console.log('Sende Anfrage an Claude API...');
+                const response = await fetch('https://api.anthropic.com/v1/messages', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'x-api-key': apiKey,
+                        'anthropic-version': '2023-06-01'
+                    },
+                    body: JSON.stringify({
+                        model: 'claude-sonnet-4-20250514',
+                        max_tokens: 4000,
+                        messages: [{
+                            role: 'user',
+                            content: [
+                                {
+                                    type: 'document',
+                                    source: {
+                                        type: 'base64',
+                                        media_type: 'application/pdf',
+                                        data: base64Data
+                                    }
+                                },
+                                {
+                                    type: 'text',
+                                    text: `Analysiere diese Rechnung und extrahiere die wichtigsten Daten.
+
+Gib die Daten in diesem einfachen Format zurück:
+
+Rechnungsnummer: [Nummer]
+Datum: [Datum]
+Lieferant: [Name]
+Adresse: [Adresse]
+Netto-Betrag: [Betrag] €
+USt-Betrag: [Betrag] €
+Brutto-Betrag: [Betrag] €
+USt-Satz: [Satz]
+Zahlungsziel: [Datum/Tage]
+
+Falls vorhanden, liste auch die wichtigsten Rechnungspositionen auf.
+
+Antworte nur mit den extrahierten Daten, ohne zusätzliche Erklärungen.`
+                                }
+                            ]
+                        }]
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error?.message || `Fehler: ${response.status}`);
+                }
+
+                const data = await response.json();
+                const resultText = data.content[0].text;
+                extractedData = resultText;
+
+                // Ergebnis anzeigen
+                displayResult(resultText);
+
+            } catch (error) {
+                console.error('Fehler:', error);
+                showError(error.message || 'Ein Fehler ist aufgetreten');
+            } finally {
+                document.getElementById('loading').classList.add('hidden');
+            }
+        }
+
+        // Datei zu Base64 konvertieren
+        function fileToBase64(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const base64 = reader.result.split(',')[1];
+                    resolve(base64);
+                };
+                reader.onerror = () => reject(new Error('Fehler beim Lesen der Datei'));
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // Ergebnis anzeigen
+        function displayResult(text) {
+            const resultDiv = document.getElementById('resultContent');
+            
+            // Text in Zeilen aufteilen und formatieren
+            const lines = text.split('\n').filter(line => line.trim());
+            let html = '';
+            
+            lines.forEach(line => {
+                if (line.includes(':')) {
+                    const [label, value] = line.split(':').map(s => s.trim());
+                    html += `
+                        <div class="flex justify-between p-3 bg-gray-50 rounded">
+                            <span class="font-semibold text-gray-700">${label}:</span>
+                            <span class="text-gray-900">${value}</span>
+                        </div>
+                    `;
+                } else {
+                    html += `<div class="p-2 text-gray-700">${line}</div>`;
+                }
+            });
+            
+            resultDiv.innerHTML = html;
+            document.getElementById('result').classList.remove('hidden');
+        }
+
+        // Fehler anzeigen
+        function showError(message) {
+            document.getElementById('errorMsg').textContent = message;
+            document.getElementById('error').classList.remove('hidden');
+        }
+
+        // Daten in Zwischenablage kopieren
+        function copyToClipboard() {
+            if (!extractedData) return;
+            
+            navigator.clipboard.writeText(extractedData).then(() => {
+                alert('✅ Daten wurden in die Zwischenablage kopiert!\n\nDu kannst sie jetzt in Excel oder woanders einfügen (Strg+V)');
+            }).catch(err => {
+                alert('Fehler beim Kopieren: ' + err);
+            });
+        }
+    </script>
+</body>
+</html>
